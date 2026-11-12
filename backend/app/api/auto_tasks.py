@@ -10,9 +10,10 @@ from sqlalchemy.orm import Session
 
 from backend.app.api.platforms.xhs.crawl import _data_items, _normalize_search_item
 from backend.app.api.platforms.xhs.pc import (
-    _get_owned_pc_account_cookies,
+    _get_owned_pc_account_runtime,
     get_xhs_pc_api_adapter_factory,
 )
+from backend.app.services.account_runtime import build_adapter
 from backend.app.core.database import get_db
 from backend.app.core.deps import get_current_user
 from backend.app.core.security import decrypt_text
@@ -275,8 +276,8 @@ def run_auto_task(
     db.flush()
 
     # 2. Search notes using PC adapter
-    pc_cookies = _get_owned_pc_account_cookies(db, current_user, auto_task.pc_account_id)
-    adapter = adapter_factory(pc_cookies)
+    runtime = _get_owned_pc_account_runtime(db, current_user, auto_task.pc_account_id)
+    adapter = build_adapter(adapter_factory, runtime)
     success, message, raw_payload = adapter.search_note(keyword, page=1)
     if not success:
         tracking_task.status = "failed"

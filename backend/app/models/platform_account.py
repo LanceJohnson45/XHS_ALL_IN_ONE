@@ -23,6 +23,13 @@ class PlatformAccount(Base):
     status: Mapped[str] = mapped_column(String(32), default="unknown")
     status_message: Mapped[str] = mapped_column(Text, default="")
     profile_json: Mapped[str] = mapped_column(Text, default="{}")
+    # Per-account network identity. NULL means "use the local direct connection".
+    fingerprint_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("browser_fingerprints.id"), nullable=True, index=True
+    )
+    proxy_id: Mapped[Optional[int]] = mapped_column(
+        ForeignKey("proxy_endpoints.id"), nullable=True, index=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, default=shanghai_now)
     updated_at: Mapped[datetime] = mapped_column(DateTime, default=shanghai_now, onupdate=shanghai_now)
 

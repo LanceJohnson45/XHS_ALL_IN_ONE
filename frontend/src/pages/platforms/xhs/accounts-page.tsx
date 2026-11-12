@@ -7,6 +7,7 @@ import {
   Empty,
   Modal,
   Row,
+  Select,
   Space,
   Spin,
   Statistic,
@@ -24,9 +25,16 @@ import {
 import { useEffect, useState } from "react";
 
 import { AddAccountDrawer } from "../../../components/account/add-account-drawer";
-import { checkAccount, deleteAccount, fetchAccounts } from "../../../lib/api";
+import {
+  checkAccount,
+  deleteAccount,
+  fetchAccounts,
+  fetchFingerprints,
+  fetchProxies,
+  updateAccountRuntime,
+} from "../../../lib/api";
 import { formatShanghaiTime } from "../../../lib/time";
-import type { PlatformAccount } from "../../../types";
+import type { BrowserFingerprint, PlatformAccount, ProxyEndpoint } from "../../../types";
 
 const { Title, Text } = Typography;
 
@@ -62,6 +70,9 @@ export function XhsAccountsPage() {
   const [isLoading, setIsLoading] = useState(true);
   const [checkingAccountIds, setCheckingAccountIds] = useState<Set<number>>(() => new Set());
   const [error, setError] = useState<string | null>(null);
+  const [fingerprints, setFingerprints] = useState<BrowserFingerprint[]>([]);
+  const [proxies, setProxies] = useState<ProxyEndpoint[]>([]);
+  const [bindingAccountId, setBindingAccountId] = useState<number | null>(null);
 
   async function loadAccounts() {
     setIsLoading(true);
@@ -73,6 +84,22 @@ export function XhsAccountsPage() {
       setError("账号列表加载失败。");
     } finally {
       setIsLoading(false);
+    }
+  }
+
+  async function handleBind(
+    account: PlatformAccount,
+    patch: { fingerprint_id?: number | null; proxy_id?: number | null },
+  ) {
+    setBindingAccountId(account.id);
+    setError(null);
+    try {
+      const updated = await updateAccountRuntime(account.id, patch);
+      setAccounts((current) => current.map((item) => (item.id === updated.id ? updated : item)));
+    } catch {
+      setError("指纹/代理绑定失败。");
+    } finally {
+      setBindingAccountId(null);
     }
   }
 
@@ -117,6 +144,18 @@ export function XhsAccountsPage() {
 
   useEffect(() => {
     void loadAccounts();
+    void (async () => {
+      try {
+        const [fingerprintResponse, proxyResponse] = await Promise.all([
+          fetchFingerprints(),
+          fetchProxies(),
+        ]);
+        setFingerprints(fingerprintResponse.items);
+        setProxies(proxyResponse.items);
+      } catch {
+        /* binding selectors degrade gracefully */
+      }
+    })();
   }, []);
 
   return (
@@ -297,6 +336,62 @@ export function XhsAccountsPage() {
                         style={{ display: "block", fontSize: 12, marginBottom: 12, color: "rgba(255,255,255,0.35)" }}
                       >
                         {account.status_message}
+                      </Text>
+                    ) : null}
+
+                    {/* Fingerprint & proxy binding */}
+                    <Row gutter={8} style={{ marginBottom: 12 }}>
+                      <Col span={12}>
+                        <Text style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", display: "block", marginBottom: 4 }}>
+                          浏览器指纹
+                        </Text>
+                        <Select
+                          size="small"
+                          style={{ width: "100%" }}
+                          allowClear
+                          placeholder="未绑定（默认指纹）"
+                          value={account.fingerprint_id ?? undefined}
+                          loading={bindingAccountId === account.id}
+                          options={fingerprints
+                            .filter((item) => item.target === (account.sub_type ?? "pc"))
+                            .map((item) => ({
+                              value: item.id,
+                              label: `${item.name || `指纹 #${item.id}`} · ${item.summary?.screen || ""}`,
+                            }))}
+                          onChange={(value) =>
+                            void handleBind(account, { fingerprint_id: value ?? null })
+                          }
+                        />
+                      </Col>
+                      <Col span={12}>
+                        <Text style={{ fontSize: 11, color: "rgba(255,255,255,0.4)", display: "block", marginBottom: 4 }}>
+                          出口代理
+                        </Text>
+                        <Select
+                          size="small"
+                          style={{ width: "100%" }}
+                          allowClear
+                          placeholder="未绑定（直连）"
+                          value={account.proxy_id ?? undefined}
+                          loading={bindingAccountId === account.id}
+                          options={proxies.map((item) => ({
+                            value: item.id,
+                            label: `${item.name || item.address} · ${item.exit_ip || item.address}`,
+                          }))}
+                          onChange={(value) =>
+                            void handleBind(account, { proxy_id: value ?? null })
+                          }
+                        />
+                      </Col>
+                    </Row>
+                    {account.proxy_id ? (
+                      <Text
+                        type="secondary"
+                        style={{ display: "block", fontSize: 11, marginBottom: 12, color: "rgba(255,255,255,0.35)" }}
+                      >
+                        出口：{account.proxy_address || "-"}
+                        {account.proxy_exit_ip ? ` → ${account.proxy_exit_ip}` : ""}
+                        {account.proxy_status === "healthy" ? " · 可用" : account.proxy_status === "unhealthy" ? " · 不可用" : ""}
                       </Text>
                     ) : null}
 

@@ -24,6 +24,7 @@ from backend.app.models import (
     Task,
     User,
 )
+from backend.app.services.account_runtime import build_adapter, load_account_runtime
 from backend.app.services.notification_service import notify_target_paused
 
 
@@ -206,8 +207,9 @@ def execute_monitoring_refresh(
             db.refresh(snapshot)
             return {"target": _serialize_target(target), "task": serialize_task(parent_task), "snapshot": _serialize_snapshot(snapshot)}
 
-    factory = adapter_factory or (lambda c: XhsPcApiAdapter(c))
-    adapter = factory(cookies)
+    factory = adapter_factory or XhsPcApiAdapter
+    runtime = load_account_runtime(db, account, cookies=cookies)
+    adapter = build_adapter(factory, runtime)
 
     ok, normalized_items, error_msg = _crawl_for_target(adapter, target)
 

@@ -3,7 +3,9 @@ import { BrowserRouter, Navigate, Route, Routes } from "react-router-dom";
 import { AppShell } from "../components/layout/app-shell";
 import { ComingSoonPage } from "../components/platforms/coming-soon";
 import { ProtectedRoute, PublicOnlyRoute } from "../components/ui/protected-route";
+import { FingerprintsPage } from "../pages/fingerprints/fingerprints-page";
 import { LoginPage } from "../pages/login/login-page";
+import { ProxiesPage } from "../pages/proxies/proxies-page";
 import { ModelConfigPage } from "../pages/models/model-config-page";
 import { PlatformSelectPage } from "../pages/platform-select/platform-select-page";
 import { SettingsPage } from "../pages/settings/settings-page";
@@ -62,6 +64,8 @@ export function AppRouter() {
         >
           <Route path="/platforms/xhs/dashboard" element={<XhsDashboard />} />
           <Route path="/platforms/xhs/accounts" element={<XhsAccountsPage />} />
+          <Route path="/platforms/xhs/fingerprints" element={<FingerprintsPage />} />
+          <Route path="/platforms/xhs/proxies" element={<ProxiesPage />} />
           <Route path="/platforms/xhs/analytics" element={<XhsAnalyticsPage />} />
           <Route path="/platforms/xhs/discovery" element={<XhsDiscoveryPage />} />
           <Route path="/platforms/xhs/crawler" element={<XhsCrawlerPage />} />

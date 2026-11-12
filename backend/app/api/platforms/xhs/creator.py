@@ -6,15 +6,14 @@ from typing import Any, Literal, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.app.adapters.xhs.creator_api_adapter import XhsCreatorApiAdapter
 from backend.app.api.tasks import serialize_task
 from backend.app.core.database import get_db
 from backend.app.core.deps import get_current_user
-from backend.app.core.security import decrypt_text
-from backend.app.models import AccountCookieVersion, PlatformAccount, Task, User
+from backend.app.models import PlatformAccount, Task, User
+from backend.app.services.account_runtime import build_adapter, load_account_runtime
 
 router = APIRouter(prefix="/xhs/creator", tags=["xhs-creator"])
 
@@ -82,15 +81,12 @@ def _get_owned_creator_account(db: Session, current_user: User, account_id: int)
     return account
 
 
-def _get_latest_creator_cookies(db: Session, account: PlatformAccount) -> str:
-    cookie_version = db.scalars(
-        select(AccountCookieVersion)
-        .where(AccountCookieVersion.platform_account_id == account.id)
-        .order_by(AccountCookieVersion.created_at.desc(), AccountCookieVersion.id.desc())
-    ).first()
-    if cookie_version is None:
+def _runtime_for_account(db: Session, account: PlatformAccount):
+    runtime = load_account_runtime(db, account)
+    if not runtime.cookies:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Creator account has no cookies")
-    return _cookies_to_string(decrypt_text(cookie_version.encrypted_cookies))
+    runtime.cookies = _cookies_to_string(runtime.cookies)
+    return runtime
 
 
 def _adapter_for_account(
@@ -100,8 +96,8 @@ def _adapter_for_account(
     adapter_factory,
 ) -> tuple[PlatformAccount, Any]:
     account = _get_owned_creator_account(db, current_user, account_id)
-    cookies = _get_latest_creator_cookies(db, account)
-    return account, adapter_factory(cookies)
+    runtime = _runtime_for_account(db, account)
+    return account, build_adapter(adapter_factory, runtime)
 
 
 def _payload_items(raw_payload: Any) -> list[Any]:

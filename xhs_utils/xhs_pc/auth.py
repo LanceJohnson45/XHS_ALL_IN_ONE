@@ -12,6 +12,7 @@ from xhs_utils.xhs_core.cookies import HostCookieStore
 from .state import (
     B1RuntimeState,
     PcDeviceProfile,
+    REFERENCE_PROFILE,
     cookie_header,
     parse_cookie_kv,
 )
@@ -181,6 +182,7 @@ class XHSPcAuth(XHSAuth):
     web_profile_fields: Mapping[str, Any] = field(default_factory=dict, repr=False)
     web_profile_i12_seed: Optional[int] = field(default=None, repr=False)
     web_profile_fi: Optional[int] = field(default=None, repr=False)
+    release: Mapping[str, Any] = field(default_factory=dict, repr=False)
     host_cookies: Mapping[str, Any] = field(default_factory=dict, repr=False)
     host_cookie_state: Mapping[str, Any] = field(default_factory=dict, repr=False)
     cookie_source_url: str = field(default='', repr=False)
@@ -221,6 +223,7 @@ class XHSPcAuth(XHSAuth):
                 fixed_b1=self.b1,
                 web_build=self.web_build,
                 b1_state=self.b1_state,
+                release={**REFERENCE_PROFILE['release'], **dict(self.release or {})},
                 rap_fingerprint_hex=self.rap_fingerprint_hex,
                 web_profile_fields=dict(self.web_profile_fields or {}),
                 web_profile_i12_seed=self.web_profile_i12_seed,
@@ -238,6 +241,10 @@ class XHSPcAuth(XHSAuth):
                 self.profile.web_build = self.web_build
             if self.rap_fingerprint_hex:
                 self.profile.rap_fingerprint_hex = self.rap_fingerprint_hex
+            if self.release:
+                self.profile.release.update(
+                    {str(key): value for key, value in dict(self.release).items()}
+                )
             if self.web_profile_fields:
                 self.profile.web_profile_fields.update(
                     {str(key): value for key, value in self.web_profile_fields.items()}

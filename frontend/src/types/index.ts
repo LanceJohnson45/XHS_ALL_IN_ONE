@@ -55,9 +55,101 @@ export type PlatformAccount = {
   status: "active" | "healthy" | "expired" | "risk" | "unknown" | string;
   status_message?: string;
   profile?: Record<string, unknown>;
+  fingerprint_id?: number | null;
+  fingerprint_name?: string | null;
+  proxy_id?: number | null;
+  proxy_name?: string | null;
+  proxy_address?: string | null;
+  proxy_status?: string | null;
+  proxy_exit_ip?: string | null;
   created_at?: string;
   updated_at?: string;
   action?: "created" | "updated" | string;
+};
+
+export type FingerprintTarget = "pc" | "creator";
+
+export type FingerprintSummary = {
+  os?: string;
+  browser?: string;
+  browserVersion?: string;
+  userAgent?: string;
+  screen?: string;
+  deviceScaleFactor?: number;
+  timezone?: string;
+  locale?: string;
+  hardwareConcurrency?: number;
+  deviceMemory?: number;
+};
+
+export type FingerprintValidation = {
+  profileData?: boolean | null;
+  b1?: boolean | null;
+  errors?: string[];
+  unavailable?: boolean;
+};
+
+export type BrowserFingerprint = {
+  id: number;
+  name: string;
+  target: FingerprintTarget;
+  seed: number;
+  schema_version: number;
+  summary: FingerprintSummary;
+  profile: Record<string, unknown>;
+  validation?: FingerprintValidation | null;
+  note: string;
+  account_count: number;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type ProxyEndpoint = {
+  id: number;
+  name: string;
+  protocol: string;
+  host: string;
+  port: number;
+  address: string;
+  url_masked: string;
+  username: string;
+  has_password: boolean;
+  status: "unknown" | "healthy" | "unhealthy" | "disabled" | string;
+  status_message: string;
+  exit_ip: string;
+  exit_country: string;
+  exit_region: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  latency_ms?: number | null;
+  note: string;
+  account_count: number;
+  last_checked_at?: string | null;
+  created_at?: string;
+  updated_at?: string;
+};
+
+export type ProxyTestResult = {
+  ok: boolean;
+  exit_ip: string;
+  country: string;
+  region: string;
+  city: string;
+  latitude?: number | null;
+  longitude?: number | null;
+  latency_ms?: number | null;
+  message: string;
+};
+
+export type AccountRuntimeInfo = {
+  account_id: number;
+  sub_type: string;
+  fingerprint_id?: number | null;
+  proxy_id?: number | null;
+  proxy_configured: boolean;
+  proxy_url_masked?: string | null;
+  fingerprint_applied: boolean;
+  warnings: string[];
 };
 
 export type XhsQrLoginSession = {

@@ -6,14 +6,13 @@ from typing import Any
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from pydantic import BaseModel, Field
-from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.app.adapters.xhs.pc_api_adapter import XhsPcApiAdapter
+from backend.app.services.account_runtime import build_adapter
 from backend.app.core.database import get_db
 from backend.app.core.deps import get_current_user
-from backend.app.core.security import decrypt_text
-from backend.app.models import AccountCookieVersion, PlatformAccount, User
+from backend.app.models import PlatformAccount, User
 from backend.app.services.mock_data import sample_notes
 
 router = APIRouter(prefix="/xhs/pc", tags=["xhs-pc"])
@@ -278,7 +277,7 @@ def _normalize_detail_payload(raw_payload: dict[str, Any], source_url: str = "")
     return normalized
 
 
-def _get_owned_pc_account_cookies(db: Session, current_user: User, account_id: int) -> str:
+def _get_owned_pc_account(db: Session, current_user: User, account_id: int) -> PlatformAccount:
     account = db.get(PlatformAccount, account_id)
     if (
         account is None
@@ -287,15 +286,18 @@ def _get_owned_pc_account_cookies(db: Session, current_user: User, account_id: i
         or account.sub_type != "pc"
     ):
         raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Account not found")
+    return account
 
-    cookie_version = db.scalars(
-        select(AccountCookieVersion)
-        .where(AccountCookieVersion.platform_account_id == account.id)
-        .order_by(AccountCookieVersion.created_at.desc())
-    ).first()
-    if cookie_version is None:
+
+def _get_owned_pc_account_runtime(db: Session, current_user: User, account_id: int):
+    from backend.app.services.account_runtime import load_account_runtime
+
+    account = _get_owned_pc_account(db, current_user, account_id)
+    runtime = load_account_runtime(db, account)
+    if not runtime.cookies:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Account has no cookies")
-    return _cookies_to_string(decrypt_text(cookie_version.encrypted_cookies))
+    runtime.cookies = _cookies_to_string(runtime.cookies)
+    return runtime
 
 
 @router.post("/search/notes")
@@ -305,8 +307,8 @@ def search_notes(
     db: Session = Depends(get_db),
     adapter_factory=Depends(get_xhs_pc_api_adapter_factory),
 ):
-    cookies = _get_owned_pc_account_cookies(db, current_user, payload.account_id)
-    success, message, raw_payload = adapter_factory(cookies).search_note(
+    runtime = _get_owned_pc_account_runtime(db, current_user, payload.account_id)
+    success, message, raw_payload = build_adapter(adapter_factory, runtime).search_note(
         payload.keyword,
         page=payload.page,
         sort_type_choice=payload.sort_type_choice,
@@ -351,8 +353,8 @@ def note_detail(
     db: Session = Depends(get_db),
     adapter_factory=Depends(get_xhs_pc_api_adapter_factory),
 ):
-    cookies = _get_owned_pc_account_cookies(db, current_user, payload.account_id)
-    success, message, raw_payload = adapter_factory(cookies).get_note_info(payload.url)
+    runtime = _get_owned_pc_account_runtime(db, current_user, payload.account_id)
+    success, message, raw_payload = build_adapter(adapter_factory, runtime).get_note_info(payload.url)
     if not success:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,
@@ -368,8 +370,8 @@ def note_comments(
     db: Session = Depends(get_db),
     adapter_factory=Depends(get_xhs_pc_api_adapter_factory),
 ):
-    cookies = _get_owned_pc_account_cookies(db, current_user, payload.account_id)
-    success, message, raw_payload = adapter_factory(cookies).get_note_comments(payload.note_url)
+    runtime = _get_owned_pc_account_runtime(db, current_user, payload.account_id)
+    success, message, raw_payload = build_adapter(adapter_factory, runtime).get_note_comments(payload.note_url)
     if not success:
         raise HTTPException(
             status_code=status.HTTP_502_BAD_GATEWAY,

@@ -12,6 +12,7 @@ from .state import (
     DS_REFRESH_INTERVAL_MS,
     CreatorB1RuntimeState,
     CreatorDeviceProfile,
+    REFERENCE_PROFILE,
     cookie_header,
     now_ms,
     parse_cookie_kv,
@@ -97,6 +98,7 @@ class XHSCreatorAuth(XHSAuth):
     b1_state: Optional[CreatorB1RuntimeState] = field(default=None, repr=False)
     mns_env: Mapping[str, Mapping[str, Any]] = field(default_factory=dict, repr=False)
     web_profile_fields: Mapping[str, Any] = field(default_factory=dict, repr=False)
+    release: Mapping[str, Any] = field(default_factory=dict, repr=False)
     host_cookies: Mapping[str, Any] = field(default_factory=dict, repr=False)
     host_cookie_state: Mapping[str, Any] = field(default_factory=dict, repr=False)
     cookie_source_url: str = field(default='', repr=False)
@@ -135,6 +137,7 @@ class XHSCreatorAuth(XHSAuth):
                 fixed_b1=self.b1,
                 dsl=self.dsl,
                 b1_state=self.b1_state,
+                release={**REFERENCE_PROFILE['release'], **dict(self.release or {})},
                 web_profile_fields=dict(self.web_profile_fields or {}),
                 source=f'auth:{self.login_source}',
             )
@@ -147,6 +150,10 @@ class XHSCreatorAuth(XHSAuth):
             if self.web_profile_fields:
                 self.profile.web_profile_fields.update(
                     {str(key): value for key, value in self.web_profile_fields.items()}
+                )
+            if self.release:
+                self.profile.release.update(
+                    {str(key): value for key, value in dict(self.release).items()}
                 )
 
         for stage, material in dict(self.mns_env or {}).items():

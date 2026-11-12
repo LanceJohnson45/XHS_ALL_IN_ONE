@@ -113,7 +113,9 @@
 
 | 模块 | 功能 |
 |------|------|
-| **账号矩阵** | 多 PC / Creator 账号绑定、Cookie 加密存储、2h 自动健康巡检、过期通知 |
+| **账号矩阵** | 多 PC / Creator 账号绑定、Cookie 加密存储、2h 自动健康巡检、过期通知、按账号绑定指纹与代理 |
+| **指纹工坊** | 为 PC / Creator 账号确定性生成独立浏览器指纹（UA、分辨率、时区、CPU、b1 遥测、webprofile 种子），可复现、可重新生成、可校验 |
+| **代理管理** | 管理逐条购买的静态 IP，支持批量粘贴导入、协议识别、密码加密存储、连通性与出口 IP 检测 |
 | **笔记发现** | 关键词搜索、URL 直查、多维筛选、已保存标记、一键入库 |
 | **数据抓取** | 批量 URL / 搜索 / 评论抓取、Excel 导出、素材本地下载 |
 | **内容库** | 卡片/列表双视图、自定义标签、批量操作、JSON/CSV 导出、查看原文 |
@@ -126,6 +128,36 @@
 | **任务中心** | 全量任务审计、调度器状态、耗时追踪 |
 | **通知系统** | Cookie 过期 / 任务失败自动通知、铃铛实时展示 |
 | **模型配置** | 支持任意 OpenAI 兼容 API（火山引擎、阿里云百炼、OpenAI 中转等） |
+
+### 指纹与代理（账号级网络身份）
+
+每个账号可以独立绑定一个**浏览器指纹**和一条**代理 IP**，用于账号矩阵的物理隔离：
+
+- 指纹注入现有签名器的公开入口（`release` / `b1_state` / `web_profile_fields` / `web_profile_i12_seed` / `web_profile_fi`），不修改任何签名算法。
+- 指纹由 seed 确定性生成：相同 seed 永远得到同一套设备画像，便于复现和长期养号。
+- 只随机化可自洽、可验证的字段（Chrome 版本、屏幕、时区/语言、CPU/内存、b1 交互遥测、webprofile 时序种子）；OS / GPU / Canvas 哈希沿用仓库内已验证的参考设备，避免自造组合反而成为风控特征。
+- 代理密码使用与 Cookie 相同的 Fernet 密钥加密，接口只返回掩码地址。
+- 所有 SDK 调用点（搜索、抓取、监控、自动运营、发布、健康检查）统一走 `account_runtime` 解析器，绑定的代理与指纹自动生效。
+
+主要接口：
+
+```text
+GET    /api/fingerprints                    指纹列表（含绑定账号数）
+POST   /api/fingerprints                    批量生成指纹
+POST   /api/fingerprints/preview            预览（不落库）
+POST   /api/fingerprints/{id}/regenerate    重新生成
+GET    /api/proxies                         代理列表
+POST   /api/proxies                         新增单条
+POST   /api/proxies/bulk                    批量粘贴导入
+POST   /api/proxies/{id}/test               检测连通性 / 出口 IP
+POST   /api/proxies/test-all                批量检测
+PATCH  /api/accounts/{id}                   绑定 / 解绑 fingerprint_id、proxy_id
+GET    /api/accounts/{id}/runtime           查看账号当前生效的指纹与代理
+```
+
+批量导入支持一行一条：`http://user:pass@1.2.3.4:8080`、`socks5://user:pass@host:1080`、`1.2.3.4:8080`、`1.2.3.4:8080:user:pass`、`user:pass@1.2.3.4:8080`。
+
+> 指纹算法的 `profileData` / `b1` 校验依赖项目根目录的 Node 依赖（`npm install`）。未安装时会跳过校验，不影响生成与使用。
 
 ### 平台扩展（规划中）
 
@@ -200,7 +232,7 @@ XHS_ALL_IN_ONE/
 │   └── app/
 │       ├── main.py                 # FastAPI 应用
 │       ├── core/                   # 配置、数据库、安全、时区
-│       ├── models/                 # SQLAlchemy 数据模型（20+ 张表）
+│       ├── models/                 # SQLAlchemy 数据模型（20+ 张表，含 fingerprints / proxies）
 │       ├── api/                    # API 路由
 │       ├── services/               # 业务逻辑 + 定时调度
 │       ├── adapters/xhs/           # XHS SDK 适配层
@@ -211,7 +243,7 @@ XHS_ALL_IN_ONE/
 │       ├── components/layout/      # 侧边栏 + 通知系统
 │       ├── lib/api.ts              # HTTP 客户端
 │       └── types/                  # TypeScript 类型
-├── tests/                          # 后端测试（126 passed）
+├── tests/                          # 后端测试（133 passed）
 ├── Dockerfile                      # 多阶段构建
 └── docker-compose.yml              # 编排文件
 ```

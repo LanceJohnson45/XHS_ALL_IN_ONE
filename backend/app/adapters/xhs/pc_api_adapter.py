@@ -1,19 +1,40 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
 from backend.app.adapters.xhs.request_env import direct_xhs_request_env
 
 
 class XhsPcApiAdapter:
-    def __init__(self, cookies: str) -> None:
+    def __init__(
+        self,
+        cookies: str,
+        proxies: Optional[dict] = None,
+        auth_kwargs: Optional[dict] = None,
+    ) -> None:
         self.cookies = cookies
+        self.proxies = proxies
+        self.auth_kwargs = dict(auth_kwargs or {})
+
+    def configure_runtime(
+        self,
+        *,
+        proxies: Optional[dict] = None,
+        auth_kwargs: Optional[dict] = None,
+    ) -> "XhsPcApiAdapter":
+        self.proxies = proxies
+        self.auth_kwargs = dict(auth_kwargs or {})
+        return self
 
     def _api(self):
         from apis.xhs_pc_apis import XHS_Apis
         from xhs_utils.xhs_pc import XHSPcAuth
 
-        auth = XHSPcAuth.from_cookie(self.cookies)
+        auth = XHSPcAuth.from_cookie(
+            self.cookies,
+            proxies=self.proxies,
+            **self.auth_kwargs,
+        )
         return XHS_Apis(auth)
 
     def search_note(

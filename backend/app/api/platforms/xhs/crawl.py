@@ -11,7 +11,7 @@ from sqlalchemy import delete, select
 from sqlalchemy.orm import Session
 
 from backend.app.api.platforms.xhs.pc import (
-    _get_owned_pc_account_cookies,
+    _get_owned_pc_account_runtime,
     _normalize_detail_payload,
     _normalize_search_item,
     normalize_comment_payload,
@@ -21,6 +21,7 @@ from backend.app.api.tasks import serialize_task
 from backend.app.core.database import get_db
 from backend.app.core.deps import get_current_user
 from backend.app.models import Note, NoteAsset, PlatformAccount, Task, User
+from backend.app.services.account_runtime import build_adapter
 
 router = APIRouter(prefix="/xhs/crawl", tags=["xhs-crawl"])
 
@@ -231,14 +232,14 @@ def crawl_search_notes(
     adapter_factory=Depends(get_xhs_pc_api_adapter_factory),
 ):
     account = _owned_pc_account(db, current_user, payload.account_id)
-    cookies = _get_owned_pc_account_cookies(db, current_user, payload.account_id)
+    runtime = _get_owned_pc_account_runtime(db, current_user, payload.account_id)
     task = _create_crawl_task(
         db,
         current_user,
         "search_notes",
         {"account_id": account.id, "keyword": payload.keyword, "page": payload.page},
     )
-    success, message, raw_payload = adapter_factory(cookies).search_note(payload.keyword, page=payload.page)
+    success, message, raw_payload = build_adapter(adapter_factory, runtime).search_note(payload.keyword, page=payload.page)
     if not success:
         _fail_task(db, task, message or "XHS search crawl failed")
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=message or "XHS search crawl failed")
@@ -267,14 +268,14 @@ def crawl_note_urls(
     adapter_factory=Depends(get_xhs_pc_api_adapter_factory),
 ):
     account = _owned_pc_account(db, current_user, payload.account_id)
-    cookies = _get_owned_pc_account_cookies(db, current_user, payload.account_id)
+    runtime = _get_owned_pc_account_runtime(db, current_user, payload.account_id)
     task = _create_crawl_task(
         db,
         current_user,
         "note_urls",
         {"account_id": account.id, "url_count": len(payload.urls)},
     )
-    adapter = adapter_factory(cookies)
+    adapter = build_adapter(adapter_factory, runtime)
     normalized_items: list[dict[str, Any]] = []
     errors: list[dict[str, str]] = []
     for url in payload.urls:
@@ -307,14 +308,14 @@ def crawl_user_notes(
     adapter_factory=Depends(get_xhs_pc_api_adapter_factory),
 ):
     account = _owned_pc_account(db, current_user, payload.account_id)
-    cookies = _get_owned_pc_account_cookies(db, current_user, payload.account_id)
+    runtime = _get_owned_pc_account_runtime(db, current_user, payload.account_id)
     task = _create_crawl_task(
         db,
         current_user,
         "user_notes",
         {"account_id": account.id, "user_url": payload.user_url},
     )
-    success, message, raw_payload = adapter_factory(cookies).get_user_notes(payload.user_url)
+    success, message, raw_payload = build_adapter(adapter_factory, runtime).get_user_notes(payload.user_url)
     if not success:
         _fail_task(db, task, message or "XHS user notes crawl failed")
         raise HTTPException(status_code=status.HTTP_502_BAD_GATEWAY, detail=message or "XHS user notes crawl failed")
@@ -347,7 +348,7 @@ def crawl_data(
     adapter_factory=Depends(get_xhs_pc_api_adapter_factory),
 ):
     account = _owned_pc_account(db, current_user, payload.account_id)
-    cookies = _get_owned_pc_account_cookies(db, current_user, payload.account_id)
+    runtime = _get_owned_pc_account_runtime(db, current_user, payload.account_id)
     task = _create_crawl_task(
         db,
         current_user,
@@ -362,7 +363,7 @@ def crawl_data(
         },
     )
     task_id = task.id
-    adapter = adapter_factory(cookies)
+    adapter = build_adapter(adapter_factory, runtime)
 
     def generate() -> Generator[str, None, None]:
         items: list[dict[str, Any]] = []

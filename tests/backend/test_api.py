@@ -6461,3 +6461,156 @@ def test_run_monitoring_refresh_for_all_users_refreshes_active_targets(tmp_path)
             db.close()
     finally:
         app.dependency_overrides.pop(db_dependency, None)
+
+
+def test_fingerprint_generation_is_deterministic_and_signer_shaped():
+    from backend.app.services.fingerprint_service import generate_fingerprint
+
+    first = generate_fingerprint(target="pc", seed=424242, validate=False)
+    second = generate_fingerprint(target="pc", seed=424242, validate=False)
+    assert first.profile["web_profile_fields"] == second.profile["web_profile_fields"]
+    assert first.profile["b1"] == second.profile["b1"]
+
+    fields = first.profile["web_profile_fields"]
+    assert fields["x1"].startswith("Mozilla/5.0 (Windows NT 10.0; Win64; x64)")
+    assert fields["x19"] == "Win32"
+    assert ";" in fields["x9"]
+    assert first.profile["release"]["userAgent"] == fields["x1"]
+    assert first.profile["b1"]["frame_count"] >= 1
+    assert len(first.profile["b1"]["selected_global_names"]) >= 6
+
+    creator = generate_fingerprint(target="creator", seed=424242, validate=False)
+    assert creator.profile["target"] == "creator"
+    assert "x37_value" in creator.profile["b1"]
+    assert creator.profile["web_profile_i12_seed"] is None
+
+
+def test_proxy_line_parser_supports_purchased_formats():
+    from backend.app.services.proxy_service import parse_proxy_line
+
+    parsed = parse_proxy_line("http://alice:secret@1.2.3.4:8080")
+    assert parsed == {
+        "protocol": "http",
+        "host": "1.2.3.4",
+        "port": 8080,
+        "username": "alice",
+        "password": "secret",
+    }
+
+    parsed = parse_proxy_line("socks5://proxy.example.com:1080")
+    assert parsed["protocol"] == "socks5"
+    assert parsed["host"] == "proxy.example.com"
+    assert parsed["username"] == ""
+
+    parsed = parse_proxy_line("5.6.7.8:9000:bob:p%40ss")
+    assert parsed["host"] == "5.6.7.8"
+    assert parsed["port"] == 9000
+    assert parsed["username"] == "bob"
+    assert parsed["password"] == "p%40ss"
+
+    parsed = parse_proxy_line("user:pass@9.9.9.9:3128", default_protocol="https")
+    assert parsed["protocol"] == "https"
+    assert parsed["username"] == "user"
+    assert parsed["password"] == "pass"
+
+    parsed = parse_proxy_line("http://u%40x:p%3Ass@1.2.3.4:8080")
+    assert parsed["username"] == "u@x"
+    assert parsed["password"] == "p:ss"
+
+
+def test_fingerprint_and_proxy_binding_api(tmp_path):
+    import sqlite3
+
+    db_dependency = _override_database(tmp_path)
+    try:
+        access_token = _register_and_get_access_token("fingerprint-user")
+        headers = {"Authorization": f"Bearer {access_token}"}
+
+        created = client.post(
+            "/api/fingerprints",
+            headers=headers,
+            json={"target": "pc", "count": 2, "validate_profile": False},
+        )
+        assert created.status_code == 201, created.text
+        fingerprints = created.json()["created"]
+        assert len(fingerprints) == 2
+        assert fingerprints[0]["summary"]["screen"]
+        fingerprint_id = fingerprints[0]["id"]
+
+        proxy_response = client.post(
+            "/api/proxies",
+            headers=headers,
+            json={
+                "name": "line-1",
+                "protocol": "http",
+                "host": "1.2.3.4",
+                "port": 8080,
+                "username": "alice",
+                "password": "secret",
+            },
+        )
+        assert proxy_response.status_code == 201, proxy_response.text
+        proxy = proxy_response.json()
+        assert "secret" not in proxy_response.text
+        assert proxy["has_password"] is True
+
+        bulk = client.post(
+            "/api/proxies/bulk",
+            headers=headers,
+            json={"text": "socks5://bob:pw@5.6.7.8:1080\n# comment\nbad-line"},
+        )
+        assert bulk.status_code == 200, bulk.text
+        assert bulk.json()["created_count"] == 1
+        assert bulk.json()["errors"]
+
+        db_path = tmp_path / "auth-test.db"
+        with sqlite3.connect(db_path) as connection:
+            connection.execute(
+                "INSERT INTO platform_accounts (user_id, platform, sub_type, nickname, avatar_url, status, status_message, profile_json, created_at, updated_at) "
+                "VALUES (1, 'xhs', 'pc', 'tester', '', 'active', '', '{}', '2026-01-01 00:00:00', '2026-01-01 00:00:00')"
+            )
+            account_id = connection.execute("SELECT last_insert_rowid()").fetchone()[0]
+
+        bound = client.patch(
+            f"/api/accounts/{account_id}",
+            headers=headers,
+            json={"fingerprint_id": fingerprint_id, "proxy_id": proxy["id"]},
+        )
+        assert bound.status_code == 200, bound.text
+        payload = bound.json()
+        assert payload["fingerprint_id"] == fingerprint_id
+        assert payload["proxy_id"] == proxy["id"]
+        assert payload["proxy_address"] == "1.2.3.4:8080"
+
+        account_list = client.get("/api/accounts", headers=headers)
+        assert account_list.status_code == 200
+        assert account_list.json()["items"][0]["fingerprint_id"] == fingerprint_id
+
+        mismatch = client.post(
+            "/api/fingerprints",
+            headers=headers,
+            json={"target": "creator", "count": 1, "validate_profile": False},
+        )
+        creator_fingerprint_id = mismatch.json()["created"][0]["id"]
+        rejected = client.patch(
+            f"/api/accounts/{account_id}",
+            headers=headers,
+            json={"fingerprint_id": creator_fingerprint_id},
+        )
+        assert rejected.status_code == 400
+
+        runtime = client.get(f"/api/accounts/{account_id}/runtime", headers=headers)
+        assert runtime.status_code == 200
+        body = runtime.json()
+        assert body["fingerprint_id"] == fingerprint_id
+        assert body["proxy_id"] == proxy["id"]
+        assert body["proxy_configured"] is True
+        assert body["fingerprint_applied"] is True
+
+        deleted = client.delete(f"/api/proxies/{proxy['id']}", headers=headers)
+        assert deleted.status_code == 200
+        after = client.get("/api/accounts", headers=headers)
+        assert after.status_code == 200
+        assert after.json()["items"][0]["proxy_id"] is None
+    finally:
+        app.dependency_overrides.pop(db_dependency, None)

@@ -15,6 +15,7 @@ from backend.app.adapters.xhs.creator_api_adapter import XhsCreatorApiAdapter
 from backend.app.core.database import SessionLocal
 from backend.app.core.security import decrypt_text
 from backend.app.core.time import shanghai_now
+from backend.app.services.account_runtime import build_adapter, load_account_runtime
 from backend.app.models import (
     AccountCookieVersion,
     AiDraft,
@@ -156,7 +157,9 @@ def _run_one_due_publish_job(db: Session, current_user: User, job: PublishJob, a
             "postTime": None,
         }
         _apply_publish_options(note_info, _load_publish_options(job))
-        payload = adapter_factory(_latest_account_cookies(db, account.id)).post_note(note_info)
+        runtime = load_account_runtime(db, account)
+        runtime.cookies = _cookies_to_string(runtime.cookies or _latest_account_cookies(db, account.id))
+        payload = build_adapter(adapter_factory, runtime).post_note(note_info)
         job.status = "published"
         job.external_note_id = _external_note_id(payload)
         job.publish_error = ""
@@ -461,7 +464,8 @@ def _execute_auto_task_background(db: Session, task: AutoTask) -> None:
     keyword = random.choice(keywords)
 
     # Search
-    adapter = XhsPcApiAdapter(cookies)
+    pc_runtime = load_account_runtime(db, account, cookies=cookies)
+    adapter = XhsPcApiAdapter(pc_runtime.cookies, proxies=pc_runtime.proxies, auth_kwargs=pc_runtime.auth_kwargs)
     success, message, raw = adapter.search_note(keyword, page=1)
     if not success:
         return
@@ -531,7 +535,12 @@ def _execute_auto_task_background(db: Session, task: AutoTask) -> None:
 
     # Upload images and create publish job
     from backend.app.adapters.xhs.creator_api_adapter import XhsCreatorApiAdapter as AutoCreatorAdapter
-    creator_adapter = AutoCreatorAdapter(creator_cookies)
+    creator_runtime = load_account_runtime(db, creator_account, cookies=creator_cookies)
+    creator_adapter = AutoCreatorAdapter(
+        creator_runtime.cookies,
+        proxies=creator_runtime.proxies,
+        auth_kwargs=creator_runtime.auth_kwargs,
+    )
 
     image_urls = (best.get("image_urls") or [])[:9]
     file_infos = []
@@ -649,9 +658,11 @@ def _check_single_account(db: Session, account: PlatformAccount, now: datetime) 
         account.updated_at = now
         return "expired"
 
+    runtime = load_account_runtime(db, account)
     adapter = XhsCreatorLoginAdapter() if account.sub_type == "creator" else XhsPcLoginAdapter()
+    runtime.apply_to(adapter)
     try:
-        cookies_text = decrypt_text(cookie_version.encrypted_cookies)
+        cookies_text = runtime.cookies or decrypt_text(cookie_version.encrypted_cookies)
         adapter.get_user_info(decode_cookie_text(cookies_text))
         old_status = account.status
         account.status = "active"

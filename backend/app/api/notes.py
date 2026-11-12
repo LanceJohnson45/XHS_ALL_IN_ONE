@@ -14,9 +14,11 @@ from sqlalchemy.orm import Session
 
 from backend.app.api.platforms.xhs.pc import (
     _cookies_to_string,
+    _get_owned_pc_account_runtime,
     get_xhs_pc_api_adapter_factory,
     normalize_comment_payload,
 )
+from backend.app.services.account_runtime import build_adapter
 from backend.app.core.config import get_settings
 from backend.app.core.database import get_db
 from backend.app.core.deps import get_current_user
@@ -435,7 +437,8 @@ def batch_save_notes(
     if payload.fetch_comments:
         if account.sub_type != "pc":
             raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="PC account is required to fetch comments")
-        comment_adapter = adapter_factory(_get_latest_account_cookies(db, account))
+        runtime = _get_owned_pc_account_runtime(db, current_user, account.id)
+        comment_adapter = build_adapter(adapter_factory, runtime)
     saved_notes: list[Note] = []
 
     for note_payload in payload.notes:

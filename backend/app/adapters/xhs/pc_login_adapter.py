@@ -1,16 +1,56 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
 from backend.app.adapters.xhs.request_env import direct_xhs_request_env
 
+_LOGIN_AUTH_KEYS = (
+    "b1",
+    "dsl",
+    "local_storage",
+    "session_storage",
+    "b1_state",
+    "web_build",
+    "mns_env",
+    "rap_fingerprint_hex",
+    "web_profile_fields",
+    "web_profile_i12_seed",
+    "web_profile_fi",
+)
+
 
 class XhsPcLoginAdapter:
+    def __init__(
+        self,
+        proxies: Optional[dict] = None,
+        auth_kwargs: Optional[dict] = None,
+    ) -> None:
+        self.proxies = proxies
+        self.auth_kwargs = dict(auth_kwargs or {})
+
+    def configure_runtime(
+        self,
+        *,
+        proxies: Optional[dict] = None,
+        auth_kwargs: Optional[dict] = None,
+    ) -> "XhsPcLoginAdapter":
+        self.proxies = proxies
+        self.auth_kwargs = dict(auth_kwargs or {})
+        return self
+
+    def _api(self):
+        from apis.xhs_pc_login_apis import XHSLoginApi
+
+        kwargs = {
+            key: value
+            for key, value in self.auth_kwargs.items()
+            if key in _LOGIN_AUTH_KEYS and value not in (None, "", {}, [])
+        }
+        return XHSLoginApi(proxies=self.proxies, **kwargs)
+
     def create_qrcode(self) -> dict[str, Any]:
         with direct_xhs_request_env():
-            from apis.xhs_pc_login_apis import XHSLoginApi
-
-            api = XHSLoginApi()
+            api = self._api()
             cookies = api.generate_init_cookies()
             success, message, payload = api.generate_qrcode(cookies)
         if not success or not payload:
@@ -24,9 +64,7 @@ class XhsPcLoginAdapter:
 
     def check_qrcode_status(self, qr_id: str, code: str, cookies: dict[str, Any]) -> dict[str, Any]:
         with direct_xhs_request_env():
-            from apis.xhs_pc_login_apis import XHSLoginApi
-
-            api = XHSLoginApi()
+            api = self._api()
             success, message, updated_cookies = api.check_qrcode_status(qr_id, code, cookies)
         status = "confirmed" if success else "pending"
         if "过期" in message or "expired" in message.lower():
@@ -37,9 +75,7 @@ class XhsPcLoginAdapter:
 
     def get_user_info(self, cookies: dict[str, Any]) -> dict[str, Any]:
         with direct_xhs_request_env():
-            from apis.xhs_pc_login_apis import XHSLoginApi
-
-            api = XHSLoginApi()
+            api = self._api()
             success, data, _ = api.get_user_info(cookies)
         if not success:
             raise RuntimeError("Failed to fetch XHS user info")
@@ -58,9 +94,7 @@ class XhsPcLoginAdapter:
 
     def create_phone_session(self, phone: str) -> dict[str, Any]:
         with direct_xhs_request_env():
-            from apis.xhs_pc_login_apis import XHSLoginApi
-
-            api = XHSLoginApi()
+            api = self._api()
             cookies = api.generate_init_cookies()
             success, message, _ = api.send_phone_code(phone, cookies)
         if not success:
@@ -69,9 +103,7 @@ class XhsPcLoginAdapter:
 
     def confirm_phone_login(self, phone: str, code: str, cookies: dict[str, Any]) -> dict[str, Any]:
         with direct_xhs_request_env():
-            from apis.xhs_pc_login_apis import XHSLoginApi
-
-            api = XHSLoginApi()
+            api = self._api()
             success, message, payload = api.login_by_phone(phone, code, cookies)
         if not success or not payload:
             raise RuntimeError(message)

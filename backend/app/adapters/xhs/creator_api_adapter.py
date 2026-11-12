@@ -1,20 +1,44 @@
 from __future__ import annotations
 
-from typing import Any
+from typing import Any, Optional
 
 from backend.app.adapters.xhs.request_env import direct_xhs_request_env
 
 
 class XhsCreatorApiAdapter:
-    def __init__(self, cookies: str) -> None:
+    def __init__(
+        self,
+        cookies: str,
+        proxies: Optional[dict] = None,
+        auth_kwargs: Optional[dict] = None,
+    ) -> None:
         self.cookies = cookies
+        self.proxies = proxies
+        self.auth_kwargs = dict(auth_kwargs or {})
+
+    def configure_runtime(
+        self,
+        *,
+        proxies: Optional[dict] = None,
+        auth_kwargs: Optional[dict] = None,
+    ) -> "XhsCreatorApiAdapter":
+        self.proxies = proxies
+        self.auth_kwargs = dict(auth_kwargs or {})
+        return self
+
+    def _auth(self):
+        from xhs_utils.xhs_creator import XHSCreatorAuth
+
+        return XHSCreatorAuth.from_cookie(
+            self.cookies,
+            proxies=self.proxies,
+            **self.auth_kwargs,
+        )
 
     def _api(self):
         from apis.xhs_creator_apis import XHS_Creator_Apis
-        from xhs_utils.xhs_creator import XHSCreatorAuth
 
-        auth = XHSCreatorAuth.from_cookie(self.cookies)
-        return XHS_Creator_Apis(auth)
+        return XHS_Creator_Apis(self._auth())
 
     def get_topic(self, keyword: str) -> Any:
         with direct_xhs_request_env():
@@ -23,6 +47,10 @@ class XhsCreatorApiAdapter:
     def get_location_info(self, keyword: str) -> Any:
         with direct_xhs_request_env():
             return self._api().get_location_info(keyword=keyword)
+
+    def get_file_ids(self, media_type: str = "image") -> Any:
+        with direct_xhs_request_env():
+            return self._api().get_fileIds(media_type)
 
     def get_published_notes(self) -> Any:
         with direct_xhs_request_env():
@@ -87,14 +115,13 @@ class XhsCreatorApiAdapter:
     def _post_uploaded_image_note(self, note_info: dict[str, Any]) -> dict[str, Any]:
         from apis.xhs_creator_apis import XHS_Creator_Apis
         from xhs_utils.http_util import REQUEST_TIMEOUT
-        from xhs_utils.xhs_creator import XHSCreatorAuth
         from xhs_utils.xhs_creator_util import (
             get_post_note_image_data,
             load_creator_rap_fingerprint_hex,
         )
         from xhs_utils.xhs_pc.params import generate_x_rap_param
 
-        auth = XHSCreatorAuth.from_cookie(self.cookies)
+        auth = self._auth()
         api = XHS_Creator_Apis(auth)
         post_api = "/web_api/sns/v2/note"
         post_loc = {}

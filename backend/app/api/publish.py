@@ -10,11 +10,11 @@ from sqlalchemy import select
 from sqlalchemy.orm import Session
 
 from backend.app.adapters.xhs.creator_api_adapter import XhsCreatorApiAdapter
+from backend.app.services.account_runtime import build_adapter, load_account_runtime
 from backend.app.core.database import get_db
 from backend.app.core.deps import get_current_user
-from backend.app.core.security import decrypt_text
 from backend.app.core.time import shanghai_now
-from backend.app.models import AccountCookieVersion, PlatformAccount, PublishAsset, PublishJob, Task, User
+from backend.app.models import PlatformAccount, PublishAsset, PublishJob, Task, User
 from backend.app.schemas.common import paginated
 
 router = APIRouter(prefix="/publish", tags=["publish"])
@@ -218,15 +218,12 @@ def _get_owned_publish_asset(db: Session, current_user: User, asset_id: int) -> 
     return asset
 
 
-def _get_latest_account_cookies(db: Session, account_id: int) -> str:
-    cookie_version = db.scalars(
-        select(AccountCookieVersion)
-        .where(AccountCookieVersion.platform_account_id == account_id)
-        .order_by(AccountCookieVersion.created_at.desc(), AccountCookieVersion.id.desc())
-    ).first()
-    if cookie_version is None:
+def _runtime_for_account(db: Session, account: PlatformAccount):
+    runtime = load_account_runtime(db, account)
+    if not runtime.cookies:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Account has no cookies")
-    return _cookies_to_string(decrypt_text(cookie_version.encrypted_cookies))
+    runtime.cookies = _cookies_to_string(runtime.cookies)
+    return runtime
 
 
 def _record_publish_control_task(db: Session, current_user: User, job: PublishJob, task_type: str) -> None:
@@ -415,13 +412,13 @@ def upload_publish_asset(
     if account.platform != "xhs" or account.sub_type != "creator":
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Creator account required")
 
-    cookies = _get_latest_account_cookies(db, account.id)
+    runtime = _runtime_for_account(db, account)
     asset.upload_status = "uploading"
     asset.upload_error = ""
     db.commit()
 
     try:
-        payload = adapter_factory(cookies).upload_media(asset.file_path, asset.asset_type)
+        payload = build_adapter(adapter_factory, runtime).upload_media(asset.file_path, asset.asset_type)
         asset.upload_status = "uploaded"
         asset.creator_media_id = _extract_creator_media_id(payload)
         asset.creator_upload_info = json.dumps(payload, ensure_ascii=False)
@@ -468,8 +465,8 @@ def publish_job_to_creator(
     if not assets:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="至少需要一个素材")
 
-    cookies = _get_latest_account_cookies(db, account.id)
-    adapter = adapter_factory(cookies)
+    runtime = _runtime_for_account(db, account)
+    adapter = build_adapter(adapter_factory, runtime)
 
     for asset in assets:
         if asset.upload_status in ("pending", "failed"):
@@ -529,7 +526,7 @@ def publish_job_to_creator(
     db.commit()
 
     try:
-        payload = adapter_factory(cookies).post_note(note_info)
+        payload = adapter.post_note(note_info)
         job.status = "scheduled" if job.publish_mode == "scheduled" else "published"
         job.external_note_id = _extract_external_note_id(payload)
         job.publish_error = ""

@@ -6,6 +6,8 @@ import {
   DashboardOutlined,
   DatabaseOutlined,
   FileTextOutlined,
+  GlobalOutlined,
+  IdcardOutlined,
   KeyOutlined,
   LogoutOutlined,
   MenuFoldOutlined,
@@ -54,6 +56,8 @@ const { Title, Text } = Typography;
 const mainNavItems: MenuProps["items"] = [
   { key: "/platforms/xhs/dashboard", icon: <DashboardOutlined />, label: "总览" },
   { key: "/platforms/xhs/accounts", icon: <SafetyCertificateOutlined />, label: "账号矩阵" },
+  { key: "/platforms/xhs/fingerprints", icon: <IdcardOutlined />, label: "指纹工坊" },
+  { key: "/platforms/xhs/proxies", icon: <GlobalOutlined />, label: "代理管理" },
   { key: "/platforms/xhs/discovery", icon: <SearchOutlined />, label: "笔记发现" },
   { key: "/platforms/xhs/crawler", icon: <CloudDownloadOutlined />, label: "数据抓取" },
   { key: "/platforms/xhs/keywords", icon: <KeyOutlined />, label: "关键词组" },

@@ -84,7 +84,12 @@ def enrich_user_info_with_xhs_self_profile(user_info: dict[str, Any], response: 
     }
 
 
-def serialize_account(account: PlatformAccount, action: str | None = None) -> dict[str, Any]:
+def serialize_account(
+    account: PlatformAccount,
+    action: str | None = None,
+    fingerprint: Any | None = None,
+    proxy: Any | None = None,
+) -> dict[str, Any]:
     try:
         profile = json.loads(account.profile_json or "{}")
         if not isinstance(profile, dict):
@@ -102,6 +107,13 @@ def serialize_account(account: PlatformAccount, action: str | None = None) -> di
         "status": account.status,
         "status_message": account.status_message,
         "profile": profile,
+        "fingerprint_id": account.fingerprint_id,
+        "fingerprint_name": fingerprint.name if fingerprint is not None else None,
+        "proxy_id": account.proxy_id,
+        "proxy_name": proxy.name if proxy is not None else None,
+        "proxy_address": f"{proxy.host}:{proxy.port}" if proxy is not None else None,
+        "proxy_status": proxy.status if proxy is not None else None,
+        "proxy_exit_ip": proxy.exit_ip if proxy is not None else None,
         "created_at": account.created_at.isoformat() if account.created_at else None,
         "updated_at": (account.updated_at or account.created_at).isoformat() if (account.updated_at or account.created_at) else None,
     }

@@ -19,7 +19,9 @@ import type {
   BatchCreateDraftsPayload,
   BatchCreateDraftsResponse,
   BatchTagNotesPayload,
+  AccountRuntimeInfo,
   BatchTagNotesResponse,
+  BrowserFingerprint,
   ComposeImagePayload,
   CreateDraftPayload,
   DashboardOverview,
@@ -50,8 +52,11 @@ import type {
   NotesExportResponse,
   Paginated,
   PlatformAccount,
+  FingerprintTarget,
   PlatformMeta,
   PlatformUser,
+  ProxyEndpoint,
+  ProxyTestResult,
   PublishAsset,
   PublishAssetPayload,
   PublishJob,
@@ -130,7 +135,14 @@ http.interceptors.response.use(
   (response) => response,
   async (error) => {
     const originalRequest = error.config as typeof error.config & { _authRetry?: boolean; _silent?: boolean };
-    if (error.response?.status !== 401 || originalRequest?._authRetry || !getRefreshToken()) {
+    const requestUrl = String(originalRequest?.url || "");
+    const isAuthEndpoint = requestUrl.includes("/auth/refresh") || requestUrl.includes("/auth/login") || requestUrl.includes("/auth/register");
+    if (
+      error.response?.status !== 401 ||
+      originalRequest?._authRetry ||
+      isAuthEndpoint ||
+      !getRefreshToken()
+    ) {
       if (!originalRequest?._silent) {
         const detail = error.response?.data?.detail;
         const msg = typeof detail === "string" ? detail : "请求失败，请稍后重试";
@@ -872,5 +884,146 @@ export async function deleteAutoTask(taskId: number): Promise<{ id: number; stat
 
 export async function runAutoTask(taskId: number): Promise<AutoTaskRunResult> {
   const response = await http.post<AutoTaskRunResult>(`/auto-tasks/${taskId}/run`);
+  return response.data;
+}
+
+
+// ---------------------------------------------------------------------------
+// Fingerprints
+// ---------------------------------------------------------------------------
+
+export async function fetchFingerprints(target?: FingerprintTarget): Promise<Paginated<BrowserFingerprint>> {
+  const response = await http.get<Paginated<BrowserFingerprint>>("/fingerprints", {
+    params: target ? { target } : undefined,
+  });
+  return response.data;
+}
+
+export async function previewFingerprint(payload: {
+  target: FingerprintTarget;
+  seed?: number;
+  validate_profile?: boolean;
+}): Promise<{ target: FingerprintTarget; seed: number; summary: Record<string, unknown>; profile: Record<string, unknown>; validation: Record<string, unknown> }> {
+  const response = await http.post("/fingerprints/preview", payload);
+  return response.data;
+}
+
+export async function createFingerprints(payload: {
+  target: FingerprintTarget;
+  count?: number;
+  seed?: number;
+  name_prefix?: string;
+  note?: string;
+  validate_profile?: boolean;
+}): Promise<{ created: BrowserFingerprint[]; total: number }> {
+  const response = await http.post<{ created: BrowserFingerprint[]; total: number }>("/fingerprints", payload);
+  return response.data;
+}
+
+export async function updateFingerprint(
+  fingerprintId: number,
+  payload: { name?: string; note?: string },
+): Promise<BrowserFingerprint> {
+  const response = await http.patch<BrowserFingerprint>(`/fingerprints/${fingerprintId}`, payload);
+  return response.data;
+}
+
+export async function regenerateFingerprint(
+  fingerprintId: number,
+  payload: { target?: FingerprintTarget; seed?: number; validate_profile?: boolean },
+): Promise<BrowserFingerprint> {
+  const response = await http.post<BrowserFingerprint>(`/fingerprints/${fingerprintId}/regenerate`, payload);
+  return response.data;
+}
+
+export async function deleteFingerprint(fingerprintId: number): Promise<{ id: number; status: string }> {
+  const response = await http.delete<{ id: number; status: string }>(`/fingerprints/${fingerprintId}`);
+  return response.data;
+}
+
+// ---------------------------------------------------------------------------
+// Proxies
+// ---------------------------------------------------------------------------
+
+export async function fetchProxies(status?: string): Promise<Paginated<ProxyEndpoint>> {
+  const response = await http.get<Paginated<ProxyEndpoint>>("/proxies", {
+    params: status ? { status } : undefined,
+  });
+  return response.data;
+}
+
+export async function createProxy(payload: {
+  name?: string;
+  protocol: string;
+  host: string;
+  port: number;
+  username?: string;
+  password?: string;
+  note?: string;
+}): Promise<ProxyEndpoint> {
+  const response = await http.post<ProxyEndpoint>("/proxies", payload);
+  return response.data;
+}
+
+export async function bulkImportProxies(payload: {
+  text: string;
+  default_protocol?: string;
+  name_prefix?: string;
+  note?: string;
+}): Promise<{ created: ProxyEndpoint[]; created_count: number; errors: { line: number; value: string; error: string }[] }> {
+  const response = await http.post("/proxies/bulk", payload);
+  return response.data;
+}
+
+export async function updateProxy(
+  proxyId: number,
+  payload: {
+    name?: string;
+    protocol?: string;
+    host?: string;
+    port?: number;
+    username?: string;
+    password?: string;
+    note?: string;
+    status?: string;
+  },
+): Promise<ProxyEndpoint> {
+  const response = await http.patch<ProxyEndpoint>(`/proxies/${proxyId}`, payload);
+  return response.data;
+}
+
+export async function deleteProxy(proxyId: number): Promise<{ id: number; status: string }> {
+  const response = await http.delete<{ id: number; status: string }>(`/proxies/${proxyId}`);
+  return response.data;
+}
+
+export async function testProxy(proxyId: number): Promise<{ result: ProxyTestResult; proxy: ProxyEndpoint }> {
+  const response = await http.post<{ result: ProxyTestResult; proxy: ProxyEndpoint }>(`/proxies/${proxyId}/test`);
+  return response.data;
+}
+
+export async function testAllProxies(limit = 50): Promise<{
+  total: number;
+  healthy: number;
+  items: { id: number; name: string; ok: boolean; exit_ip: string; latency_ms?: number | null; message: string }[];
+}> {
+  const response = await http.post("/proxies/test-all", undefined, { params: { limit } });
+  return response.data;
+}
+
+// ---------------------------------------------------------------------------
+// Account runtime binding
+// ---------------------------------------------------------------------------
+
+export async function updateAccountRuntime(
+  accountId: number,
+  payload: { fingerprint_id?: number | null; proxy_id?: number | null },
+): Promise<PlatformAccount> {
+  const response = await http.patch<PlatformAccount>(`/accounts/${accountId}`, payload);
+  return response.data;
+}
+
+export async function fetchAccountRuntime(accountId: number): Promise<AccountRuntimeInfo> {
+  const response = await http.get<AccountRuntimeInfo>(`/accounts/${accountId}/runtime`);
   return response.data;
 }
